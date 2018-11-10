@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.xpath.XPathExpressionException;
@@ -207,7 +206,7 @@ public class SamlResponse {
 				}
 
 				// Check if the InResponseTo of the Response matches the ID of the AuthNRequest (requestId) if provided
-				if (requestId != null && !Objects.equals(responseInResponseTo, requestId)) {
+				if (requestId != null && !(responseInResponseTo == requestId) || (responseInResponseTo != null && responseInResponseTo.equals(requestId))) {
 						throw new ValidationError("The InResponseTo of the Response: " + responseInResponseTo
 								+ ", does not match the ID of the AuthNRequest sent by the SP: " + requestId, ValidationError.WRONG_INRESPONSETO);
 				}

@@ -13,7 +13,6 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.Key;
@@ -1031,12 +1030,6 @@ public final class Util {
 	/**
 	 * Whitelist the XMLSignature algorithm
 	 *
-	 * @param signNode
-	 * 				 The document we should validate
-	 * @param cert
-	 * 				 The public certificate
-	 * @param fingerprint
-	 * 				 The fingerprint of the public certificate
 	 * @param alg
 	 * 				 The signature algorithm method
 	 *

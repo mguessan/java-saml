@@ -8,7 +8,6 @@ import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import javax.xml.xpath.XPathExpressionException;
 
@@ -198,7 +197,7 @@ public class LogoutResponse {
 				}
 
 				// Check if the InResponseTo of the Response matches the ID of the AuthNRequest (requestId) if provided
-				if (requestId != null && !Objects.equals(responseInResponseTo, requestId)) {
+				if (requestId != null && !(responseInResponseTo == requestId) || (responseInResponseTo != null && responseInResponseTo.equals(requestId))) {
 						throw new ValidationError("The InResponseTo of the Logout Response: " + responseInResponseTo
 								+ ", does not match the ID of the Logout request sent by the SP: " + requestId, ValidationError.WRONG_INRESPONSETO);
 				}

@@ -4,12 +4,7 @@ import static com.onelogin.saml2.util.Preconditions.checkNotNull;
 import static java.util.Collections.unmodifiableList;
 import static java.util.Collections.unmodifiableMap;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -189,14 +184,14 @@ public final class HttpRequest {
         }
 
         HttpRequest that = (HttpRequest) o;
-        return Objects.equals(requestURL, that.requestURL) &&
-                Objects.equals(parameters, that.parameters) &&
-                Objects.equals(queryString, that.queryString);
+        return (requestURL == that.requestURL) || (requestURL != null && requestURL.equals(that.requestURL)) &&
+                (parameters == that.parameters) || (parameters != null && parameters.equals(that.parameters)) &&
+                (queryString == that.queryString) || (queryString != null && queryString.equals(that.queryString));
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(requestURL, parameters, queryString);
+        return Arrays.hashCode(new Object[]{requestURL, parameters, queryString});
     }
 
     @Override
