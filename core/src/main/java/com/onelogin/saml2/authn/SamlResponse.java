@@ -284,7 +284,7 @@ public class SamlResponse {
 				throw new ValidationError("No Signature found. SAML Response rejected", ValidationError.NO_SIGNATURE_FOUND);
 			} else {
 				X509Certificate cert = settings.getIdpx509cert();
-				List<X509Certificate> certList = new ArrayList<>();
+				List<X509Certificate> certList = new ArrayList<X509Certificate>();
 				List<X509Certificate> multipleCertList = settings.getIdpx509certMulti();
 
 				if (multipleCertList != null && !multipleCertList.isEmpty()) {
@@ -410,7 +410,7 @@ public class SamlResponse {
 		if (this.nameIdData != null) {
 			return this.nameIdData;
 		}
-		Map<String,String> nameIdData = new HashMap<>();
+		Map<String,String> nameIdData = new HashMap<String,String>();
 
 		NodeList encryptedIDNodes = this.queryAssertion("/saml:Subject/saml:EncryptedID");
 		NodeList nameIdNodes;
