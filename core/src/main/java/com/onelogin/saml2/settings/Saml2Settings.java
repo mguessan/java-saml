@@ -71,7 +71,9 @@ public class Saml2Settings {
 	private String requestedAuthnContextComparison = "exact";
 	private boolean wantXMLValidation = true;
 	private String signatureAlgorithm = Constants.RSA_SHA1;
+	private String digestAlgorithm = Constants.SHA1;
 	private boolean rejectUnsolicitedResponsesWithInResponseTo = false;
+	private String uniqueIDPrefix = null;
 
 	// Compress
 	private boolean compressRequest = true;
@@ -319,6 +321,13 @@ public class Saml2Settings {
 	}
 
 	/**
+	 * @return the digestAlgorithm setting value
+	 */
+	public String getDigestAlgorithm() {
+		return digestAlgorithm;
+	}
+
+	/**
 	 * @return SP Contact info
 	 */
 	public List<Contact> getContacts() {
@@ -330,6 +339,13 @@ public class Saml2Settings {
 	 */
 	public Organization getOrganization() {
 		return this.organization;
+	}
+
+	/**
+	 * @return Unique ID prefix
+	 */
+	public String getUniqueIDPrefix() {
+		return this.uniqueIDPrefix;
 	}
 
 	/**
@@ -437,6 +453,16 @@ public class Saml2Settings {
 	 */
 	protected final void setSpPrivateKey(PrivateKey spPrivateKey) {
 		this.spPrivateKey = spPrivateKey;
+	}
+
+	/**
+	 * Set the uniqueIDPrefix setting value
+	 *
+	 * @param uniqueIDPrefix
+	 *            the Unique ID prefix used when generating Unique ID
+	 */
+	protected final void setUniqueIDPrefix(String uniqueIDPrefix) {
+		this.uniqueIDPrefix = uniqueIDPrefix;
 	}
 
 	/**
@@ -679,6 +705,16 @@ public class Saml2Settings {
 	 */
 	public void setSignatureAlgorithm(String signatureAlgorithm) {
 		this.signatureAlgorithm = signatureAlgorithm;
+	}
+
+	/**
+	 * Set the digestAlgorithm setting value
+	 *
+	 * @param digestAlgorithm
+	 *            the digestAlgorithm value to be set.
+	 */
+	public void setDigestAlgorithm(String digestAlgorithm) {
+		this.digestAlgorithm = digestAlgorithm;
 	}
 
 	/**
@@ -951,7 +987,8 @@ public class Saml2Settings {
 						metadataString,
 						this.getSPkey(),
 						this.getSPcert(),
-						this.getSignatureAlgorithm()
+						this.getSignatureAlgorithm(),
+						this.getDigestAlgorithm()
 				);
 			} catch (Exception e) {				
 				LOGGER.debug("Error executing signMetadata: " + e.getMessage(), e);

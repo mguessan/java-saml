@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -118,7 +119,18 @@ public class AuthnResponseTest {
 		expectedEx.expectMessage("No private key available for decrypt, check settings");
 		new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
 	}
-	
+
+	@Test
+	public void testTextWithCommentAttack() throws Exception {
+		Saml2Settings settings = new SettingsBuilder().fromFile("config/config.min.properties").build();
+		String samlResponseEncoded = Util.getFileAsString("data/responses/response_node_test_attack.xml.base64");
+		SamlResponse samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
+		HashMap<String, List<String>> attributes = samlResponse.getAttributes();
+		String nameId = samlResponse.getNameId();
+		assertEquals("smith", attributes.get("surname").get(0));
+		assertEquals("support@onelogin.com", nameId);
+	}
+
 	/**
 	 * Tests the constructor of SamlResponse
 	 * Case test namespaces
@@ -241,7 +253,45 @@ public class AuthnResponseTest {
 		samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
 		assertNull(samlResponse.getNameIdFormat());
 	}
-	
+
+	/**
+	 * Tests the getNameIdNameQualifier method of SamlResponse
+	 *
+	 * @throws Exception
+	 *
+	 * @see com.onelogin.saml2.authn.SamlResponse#getNameIdNameQualifier
+	 */
+	@Test
+	public void testGetNameIdNameQualifier() throws Exception {
+		Saml2Settings settings = new SettingsBuilder().fromFile("config/config.my.properties").build();
+		String samlResponseEncoded = Util.getFileAsString("data/responses/response1.xml.base64");
+		SamlResponse samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
+		assertNull(samlResponse.getNameIdNameQualifier());
+		
+		samlResponseEncoded = Util.getFileAsString("data/responses/valid_response_with_namequalifier.xml.base64");
+		samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
+		assertEquals("example.com", samlResponse.getNameIdNameQualifier());
+	}
+
+	/**
+	 * Tests the getNameIdSPNameQualifier method of SamlResponse
+	 *
+	 * @throws Exception
+	 *
+	 * @see com.onelogin.saml2.authn.SamlResponse#getNameIdSPNameQualifier
+	 */
+	@Test
+	public void testGetNameIdSPNameQualifier() throws Exception {
+		Saml2Settings settings = new SettingsBuilder().fromFile("config/config.my.properties").build();
+		String samlResponseEncoded = Util.getFileAsString("data/responses/response1.xml.base64");
+		SamlResponse samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
+		assertNull(samlResponse.getNameIdSPNameQualifier());
+		
+		samlResponseEncoded = Util.getFileAsString("data/responses/valid_response_with_namequalifier.xml.base64");
+		samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
+		assertEquals(settings.getSpEntityId(), samlResponse.getNameIdSPNameQualifier());
+	}
+
 	/**
 	 * Tests the getNameId method of SamlResponse
 	 * Case: No NameId
@@ -280,7 +330,7 @@ public class AuthnResponseTest {
 		SamlResponse samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
 		
 		expectedEx.expect(ValidationError.class);
-		expectedEx.expectMessage("The SPNameQualifier value mistmatch the SP entityID value.");
+		expectedEx.expectMessage("The SPNameQualifier value mismatch the SP entityID value.");
 		samlResponse.getNameId();
 	}
 	
@@ -434,7 +484,7 @@ public class AuthnResponseTest {
 		SamlResponse samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
 		
 		expectedEx.expect(ValidationError.class);
-		expectedEx.expectMessage("The SPNameQualifier value mistmatch the SP entityID value.");
+		expectedEx.expectMessage("The SPNameQualifier value mismatch the SP entityID value.");
 		samlResponse.getNameIdData();
 	}
 
@@ -451,7 +501,7 @@ public class AuthnResponseTest {
 		Saml2Settings settings = new SettingsBuilder().fromFile("config/config.min.properties").build();
 		String samlResponseEncoded = Util.getFileAsString("data/responses/invalids/empty_nameid.xml.base64");
 		SamlResponse samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
-		HashMap<String, String> nameIdData = samlResponse.getNameIdData();
+		Map<String, String> nameIdData = samlResponse.getNameIdData();
 		assertTrue(nameIdData.get("Value").isEmpty());
 
 		settings.setStrict(true);
@@ -681,6 +731,13 @@ public class AuthnResponseTest {
 		samlResponseDoc = Util.loadXML(new String(Util.base64decoder(samlResponseEncoded))); 
 		status = SamlResponse.getStatus(samlResponseDoc);
 		assertEquals(Constants.STATUS_RESPONDER, status.getStatusCode());
+		assertEquals("something_is_wrong", status.getStatusMessage());
+
+		samlResponseEncoded = Util.getFileAsString("data/responses/invalids/status_code_and_sub_status_code_responder_and_msg.xml.base64");
+		samlResponseDoc = Util.loadXML(new String(Util.base64decoder(samlResponseEncoded)));
+		status = SamlResponse.getStatus(samlResponseDoc);
+		assertEquals(Constants.STATUS_RESPONDER, status.getStatusCode());
+		assertEquals(Constants.STATUS_AUTHNFAILED, status.getSubStatusCode());
 		assertEquals("something_is_wrong", status.getStatusMessage());
 	}
 
@@ -1434,7 +1491,7 @@ public class AuthnResponseTest {
 		SamlResponse samlResponse = new SamlResponse(settings, newHttpRequest(samlResponseEncoded));
 		
 		expectedEx.expect(ValidationError.class);
-		expectedEx.expectMessage("The SPNameQualifier value mistmatch the SP entityID value.");
+		expectedEx.expectMessage("The SPNameQualifier value mismatch the SP entityID value.");
 		samlResponse.getNameId();
 	}
 	
@@ -2812,7 +2869,7 @@ public class AuthnResponseTest {
 	}
 
 	private static HttpRequest newHttpRequest(String requestURL, String samlResponseEncoded) {
-		return new HttpRequest(requestURL).addParameter("SAMLResponse", samlResponseEncoded);
+		return new HttpRequest(requestURL, (String)null).addParameter("SAMLResponse", samlResponseEncoded);
 	}
 }
 

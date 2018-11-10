@@ -14,11 +14,13 @@ import java.util.List;
 
 import org.junit.Test;
 import org.w3c.dom.Document;
+import org.w3c.dom.Node;
 
 import com.onelogin.saml2.exception.Error;
 import com.onelogin.saml2.settings.Metadata;
 import com.onelogin.saml2.settings.Saml2Settings;
 import com.onelogin.saml2.settings.SettingsBuilder;
+import com.onelogin.saml2.util.Constants;
 import com.onelogin.saml2.util.SchemaFactory;
 import com.onelogin.saml2.util.Util;
 
@@ -279,9 +281,14 @@ public class Saml2SettingsTest {
 
 		Document metadataDoc = Util.loadXML(metadataStr);
 		assertTrue(metadataDoc instanceof Document);
-
-		assertEquals("md:EntityDescriptor", metadataDoc.getDocumentElement().getNodeName());
 		assertEquals("ds:Signature", metadataDoc.getDocumentElement().getFirstChild().getNodeName());
+		Node ds_signature_metadata = metadataDoc.getFirstChild().getFirstChild();
+
+		assertEquals(Constants.C14NEXC, ds_signature_metadata.getFirstChild().getFirstChild().getAttributes().getNamedItem("Algorithm").getNodeValue());
+		
+		assertEquals(Constants.RSA_SHA512, ds_signature_metadata.getFirstChild().getFirstChild().getNextSibling().getAttributes().getNamedItem("Algorithm").getNodeValue());
+		assertEquals(Constants.SHA1, ds_signature_metadata.getFirstChild().getFirstChild().getNextSibling().getNextSibling().getFirstChild().getNextSibling().getAttributes().getNamedItem("Algorithm").getNodeValue());
+
 		assertEquals("md:SPSSODescriptor", metadataDoc.getDocumentElement().getFirstChild().getNextSibling().getNodeName());
 		
 		assertTrue(Util.validateXML(metadataDoc, SchemaFactory.SAML_SCHEMA_METADATA_2_0));
@@ -349,7 +356,42 @@ public class Saml2SettingsTest {
 		assertFalse(errors.isEmpty());
 		assertTrue(errors.contains("noEntityDescriptor_xml"));
 	}
-	
+
+	/**
+	 * Test that Unique ID prefix is read
+	 *
+	 * @throws Exception
+	 */
+	@Test
+	public void testGivenUniqueIDPrefixIsUsed() throws Exception {
+		Saml2Settings settings = new SettingsBuilder().fromFile("config/config.all.properties").build();
+
+		assertEquals("EXAMPLE", settings.getUniqueIDPrefix());
+	}
+
+	/**
+	 * Test that "_" value is ok for Unique ID prefix
+	 *
+	 * @throws Exception
+	 */
+	@Test
+	public void testUniqueIDPrefixIsUsed() throws Exception {
+		Saml2Settings settings = new SettingsBuilder().fromFile("config/config.min_uniqueid.properties").build();
+
+		assertEquals("_", settings.getUniqueIDPrefix());
+	}
+
+	/**
+	 * Tests that if property Unique ID prefix is unset, default value is used
+	 * @throws Exception
+	 */
+	@Test
+	public void testUniqueIDPrefixUsesDefaultWhenNotSet() throws Exception {
+		Saml2Settings settings = new SettingsBuilder().fromFile("config/config.min.properties").build();
+
+		assertEquals("ONELOGIN_", settings.getUniqueIDPrefix());
+	}
+
 	/**
 	 * Tests the validateMetadata method of the Saml2Settings
 	 * Case Invalid: onlySPSSODescriptor_allowed_xml

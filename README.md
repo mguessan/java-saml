@@ -67,22 +67,24 @@ Key features:
 
 In production, the **onelogin.saml2.strict** setting parameter MUST be set as **"true"**. Otherwise your environment is not secure and will be exposed to attacks.
 
+In production also we highly recommend to register on the settings the IdP certificate instead of using the fingerprint method. The fingerprint, is a hash, so at the end is open to a collision attack that can end on a signature validation bypass. Other SAML toolkits deprecated that mechanism, we maintain it for compatibility and also to be used on test environment.
+
 ## Installation
 ### Hosting
 #### Github
 The toolkit is hosted on github. You can download it from:
-* Lastest release: https://github.com/onelogin/java-saml/releases/latest
+* Latest release: https://github.com/onelogin/java-saml/releases/latest
 * Master repo: https://github.com/onelogin/java-saml/tree/master
 
 #### Maven
 The toolkit is hosted at [Sonatype OSSRH (OSS Repository Hosting)](http://central.sonatype.org/pages/ossrh-guide.html) that is synced to the Central Repository.
 
-Install it as a maven dependecy:
+Install it as a maven dependency:
 ```
   <dependency>
       <groupId>com.onelogin</groupId>
       <artifactId>java-saml</artifactId>
-      <version>2.2.0</version>
+      <version>2.3.0</version>
   </dependency>
 ```
 
@@ -123,7 +125,7 @@ For more info, open and read the different pom.xml files:
 ## Working with the github repository code and Eclipse.
 ### Get the toolkit.
 The toolkit is hosted on github. You can download it from:
-* Lastest release: https://github.com/onelogin/java-saml/releases/latest
+* Latest release: https://github.com/onelogin/java-saml/releases/latest
 * Master repo: https://github.com/onelogin/java-saml/tree/master
 
 ### Adding java-saml toolkit components as a project
@@ -132,7 +134,7 @@ The toolkit is hosted on github. You can download it from:
 3. File > Import > Maven : Existing Maven Projects > Select the path where the toolkit folder of the Java Toolkit is  *<path>/java-saml/toolkit*, resolve the Workspace project and select the pom.xml
 
 ### Adding the java-saml-tookit-jspsample as a project
-1. File > Import > Maven : Existing Maven Projects > Select the path where the core folder of the Java Toolkit is  *<path>/java-saml/samples/java-saml-tookit-jspsample*, resolve the Wordkspace project and select the pom.xml
+1. File > Import > Maven : Existing Maven Projects > Select the path where the core folder of the Java Toolkit is  *<path>/java-saml/samples/java-saml-tookit-jspsample*, resolve the Workspace project and select the pom.xml
 
 ### Deploy the java-saml-tookit-jspsample
 
@@ -153,7 +155,7 @@ In the repo, at *src/main/java* you will find the source; at *src/main/resources
 
 
 #### toolkit (com.onelogin:java-saml) ####
-This folder contains a maven project with the Auth class to handle the low level classes of java-saml-core and the ServletUtils class to handle javax.servlet.http objetcs, used on the Auth class.
+This folder contains a maven project with the Auth class to handle the low level classes of java-saml-core and the ServletUtils class to handle javax.servlet.http objects, used on the Auth class.
 In the repo, at *src/main/java* you will find the source and at *src/test/java* the junit tests for the classes Auth and ServletUtils.
 
 #### samples (com.onelogin:java-saml-tookit-samples) ####
@@ -263,7 +265,10 @@ onelogin.saml2.idp.single_logout_service.binding = urn:oasis:names:tc:SAML:2.0:b
 # Public x509 certificate of the IdP
 onelogin.saml2.idp.x509cert =
 
-# Instead of use the whole x509cert you can use a fingerprint
+# Instead of using the whole x509cert you can use a fingerprint in order to
+# validate a SAMLResponse (but you still need the x509cert to validate LogoutRequest and LogoutResponse using the HTTP-Redirect binding).
+# But take in mind that the fingerprint, is a hash, so at the end is open to a collision attack that can end on a signature validation bypass,
+# that why we don't recommend it use for production environments.
 # (openssl x509 -noout -fingerprint -in "idp.crt" to generate it,
 # or add for example the -sha256 , -sha384 or -sha512 parameter)
 #
@@ -341,10 +346,15 @@ onelogin.saml2.contacts.technical.given_name = Technical Guy
 onelogin.saml2.contacts.technical.email_address = technical@example.com
 onelogin.saml2.contacts.support.given_name = Support Guy
 onelogin.saml2.contacts.support.email_address = support@example.com
+
+# Prefix used in generated Unique IDs.
+# Optional, defaults to ONELOGIN_ or full ID is like ONELOGIN_ebb0badd-4f60-4b38-b20a-a8e01f0592b1.
+# At minimun, the prefix can be non-numeric character such as "_".
+# onelogin.saml2.unique_id_prefix = _
 ```
 
 ##### Dynamic Settings
-It is possible to build settings programatically. You can load your values from different sources such as files, databases, or generated values.
+It is possible to build settings programmatically. You can load your values from different sources such as files, databases, or generated values.
 
 The `SettingsBuilder` class exposes the method `fromValues(Map<String, Object> samlData)` which let you build your settings dynamically. The `key` strings are the same from the *Properties file*
 ```java
@@ -440,10 +450,19 @@ if (!errors.isEmpty()) {
         }
     }
 } else {
-    HashMap<String, List<String>> attributes = auth.getAttributes();
+    Map<String, List<String>> attributes = auth.getAttributes();
     String nameId = auth.getNameId();
+    String nameIdFormat = auth.getNameIdFormat();
+    String sessionIndex = auth.getSessionIndex();
+    String nameidNameQualifier = auth.getNameIdNameQualifier();
+    String nameidSPNameQualifier = auth.getNameIdSPNameQualifier();
+
     session.setAttribute("attributes", attributes);
     session.setAttribute("nameId", nameId);
+    session.setAttribute("nameIdFormat", nameIdFormat);
+    session.setAttribute("sessionIndex", sessionIndex);
+    session.setAttribute("nameidNameQualifier", nameidNameQualifier);
+    session.setAttribute("nameidSPNameQualifier", nameidSPNameQualifier);
 
     String relayState = request.getParameter("RelayState");
 
@@ -486,7 +505,7 @@ With this method we get a Map with all the user data provided by the IdP in the 
     "groups": ["users", "members"]
 }
 ```
-Each attribute name can be used as a key to obtain the value. Every attribute is a list of values. A single-valued attribute is a listy of a single element.
+Each attribute name can be used as a key to obtain the value. Every attribute is a list of values. A single-valued attribute is a list of a single element.
 
 Before trying to get an attribute, check that the user is authenticated. If the user isn't authenticated, an empty Map will be returned. For example, if we call to getAttributes before a auth.processResponse, the getAttributes() will return an empty Map.
 
@@ -514,7 +533,28 @@ If we don't want that processSLO to destroy the session, pass the keepLocalSessi
 In order to send a Logout Request to the IdP:
 ```
 Auth auth = new Auth(request, response);
-auth.logout();
+
+String nameId = null;
+if (session.getAttribute("nameId") != null) {
+    nameId = session.getAttribute("nameId").toString();
+}
+String nameIdFormat = null;
+if (session.getAttribute("nameIdFormat") != null) {
+    nameIdFormat = session.getAttribute("nameIdFormat").toString();
+}
+String nameidNameQualifier = null;
+if (session.getAttribute("nameidNameQualifier") != null) {
+    nameIdFormat = session.getAttribute("nameidNameQualifier").toString();
+}
+String nameidSPNameQualifier = null;
+if (session.getAttribute("nameidSPNameQualifier") != null) {
+    nameidSPNameQualifier = session.getAttribute("nameidSPNameQualifier").toString();
+}
+String sessionIndex = null;
+if (session.getAttribute("sessionIndex") != null) {
+    sessionIndex = session.getAttribute("sessionIndex").toString();
+}
+auth.logout(null, nameId, sessionIndex, nameIdFormat);
 ```
 The Logout Request will be sent signed or unsigned based on the security settings 'onelogin.saml2.security.logoutrequest_signed'
 
@@ -538,7 +578,7 @@ if a match on the future LogoutResponse ID and the LogoutRequest ID to be sent i
 ```
 auth.getLastRequestId()
 ```
-and later excuting the redirection manually.
+and later executing the redirection manually.
 
 
 ### Working behind load balancer
@@ -555,7 +595,7 @@ For Apache Tomcat this is done by setting the proxyName, proxyPort, scheme and s
  In some scenarios the IdP uses different certificates for
  signing/encryption, or is under key rollover phase and more than one certificate is published on IdP metadata.
  
- In order to handle that the toolkit offers the `onelogin.saml2.idp.x509certMulti` parameters where you can set additional certificates that will be used to validate IdP signature. However just the certificate setted in `onelogin.saml2.idp.x509cert` parameter will be used for encrypting.
+ In order to handle that the toolkit offers the `onelogin.saml2.idp.x509certMulti` parameters where you can set additional certificates that will be used to validate IdP signature. However just the certificate set in `onelogin.saml2.idp.x509cert` parameter will be used for encrypting.
  
 
 ### Replay attacks
@@ -585,7 +625,7 @@ Lets imagine we deploy the jsp example project at *http://localhost:8080/java-sa
 
   2.2. In the second link we are redirected to the */dologin.jsp* view with a 'attrs' GET parameter. An AuthNRequest is sent to the IdP with the /attrs.jsp view as RelayState parameter, we authenticate at the IdP and then a Response is sent to the SP, specifically to the Assertion Consumer Service view: /acs.jsp. There the SAMLResponse is validated, the NameID and user attributes extracted and stored in the session and we are redirected to the RelayState view, the attrs.jsp view where user data is read from session and prompted.
 
-3. The single log out funcionality could be tested by 2 ways.
+3. The single log out functionality could be tested by 2 ways.
 
   3.1. SLO Initiated by SP. Click on the "logout" link at the SP, after that we are redirected to the /dologout.jsp view where a Logout Request is sent to the IdP, the session at the IdP is closed and replies to the SP a Logout Response (sent to the Single Logout Service endpoint). The SLS endpoint /sls.jsp of the SP process the Logout Response and if is valid, close the user session of the local app. Notice that the SLO Workflow starts and ends at the SP.
 

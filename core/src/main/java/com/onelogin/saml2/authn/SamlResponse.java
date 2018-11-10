@@ -66,6 +66,11 @@ public class SamlResponse {
 	private Document decryptedDocument;
 
 	/**
+	 * NameID Data
+	 */
+	private Map<String,String> nameIdData = null;
+
+	/**
 	 * URL of the current host + current view
 	 */
 	private String currentUrl;
@@ -81,8 +86,7 @@ public class SamlResponse {
 	private String error;
 
 	/**
-	 * Constructor to have a Response object full builded and ready to validate
-	 * the saml response
+	 * Constructor to have a Response object fully built and ready to validate the saml response.
 	 *
 	 * @param settings
 	 *              Saml2Settings object. Setting data
@@ -140,7 +144,7 @@ public class SamlResponse {
 	 * Determines if the SAML Response is valid using the certificate.
 	 *
 	 * @param requestId The ID of the AuthNRequest sent by this SP to the IdP
-	 * 
+	 *
 	 * @return if the response is valid or not
 	 */
 	public boolean isValid(String requestId) {
@@ -159,7 +163,7 @@ public class SamlResponse {
 			rootElement.normalize();
 
 			// Check SAML version
-			if (!rootElement.getAttribute("Version").equals("2.0")) {
+			if (!"2.0".equals(rootElement.getAttribute("Version"))) {
 				throw new ValidationError("Unsupported SAML Version.", ValidationError.UNSUPPORTED_SAML_VERSION);
 			}
 
@@ -174,7 +178,7 @@ public class SamlResponse {
 				throw new ValidationError("SAML Response must contain 1 Assertion.", ValidationError.WRONG_NUMBER_OF_ASSERTIONS);
 			}
 
-			ArrayList<String> signedElements = processSignedElements();
+			List<String> signedElements = processSignedElements();
 
 			String responseTag = "{" + Constants.NS_SAMLP  + "}Response";
 			String assertionTag = "{" + Constants.NS_SAML + "}Assertion";
@@ -223,7 +227,7 @@ public class SamlResponse {
 				if (!this.checkOneCondition()) {
 					throw new ValidationError("The Assertion must include a Conditions element", ValidationError.MISSING_CONDITIONS);
 				}
-				
+
 				// Validate Assertion timestamps
 				if (!this.validateTimestamps()) {
 					throw new Exception("Timing issues (please check your clock settings)");
@@ -233,36 +237,22 @@ public class SamlResponse {
 				if (!this.checkOneAuthnStatement()) {
 					throw new ValidationError("The Assertion must include an AuthnStatement element", ValidationError.WRONG_NUMBER_OF_AUTHSTATEMENTS);
 				}
-				
+
 				// EncryptedAttributes are not supported
 				NodeList encryptedAttributeNodes = this.queryAssertion("/saml:AttributeStatement/saml:EncryptedAttribute");
 				if (encryptedAttributeNodes.getLength() > 0) {
 					throw new ValidationError("There is an EncryptedAttribute in the Response and this SP not support them", ValidationError.ENCRYPTED_ATTRIBUTES);
 				}
-				
-				// Check destination
-				if (rootElement.hasAttribute("Destination")) {
-					String destinationUrl = rootElement.getAttribute("Destination");
-					if (destinationUrl != null) {
-						if (destinationUrl.isEmpty()) {
-							throw new ValidationError("The response has an empty Destination value", ValidationError.EMPTY_DESTINATION);
-						} else if (!destinationUrl.equals(currentUrl)) {
-							throw new ValidationError("The response was received at " + currentUrl + " instead of "
-									+ destinationUrl, ValidationError.WRONG_DESTINATION);
-						}
-					}
-				}
 
-				// Check Audience
-				List<String> validAudiences = this.getAudiences();				
-				if (!validAudiences.isEmpty() && !validAudiences.contains(settings.getSpEntityId())) {
-					throw new ValidationError(settings.getSpEntityId() + " is not a valid audience for this Response", ValidationError.WRONG_AUDIENCE);
-				}
-				
+				// Check destination
+				validateDestination(rootElement);
+
+				// Check Audiences
+				validateAudiences();
+
 				// Check the issuers
 				List<String> issuers = this.getIssuers();
-				for (int i = 0; i < issuers.size(); i++) {
-					String issuer = issuers.get(i);
+				for (final String issuer : issuers) {
 					if (issuer.isEmpty() || !issuer.equals(settings.getIdpEntityId())) {
 						throw new ValidationError(
 								String.format("Invalid issuer in the Assertion/Response. Was '%s', but expected '%s'", issuer, settings.getIdpEntityId()),
@@ -292,12 +282,12 @@ public class SamlResponse {
 
 			if (signedElements.isEmpty() || (!hasSignedAssertion && !hasSignedResponse)) {
 				throw new ValidationError("No Signature found. SAML Response rejected", ValidationError.NO_SIGNATURE_FOUND);
-			} else {				 
+			} else {
 				X509Certificate cert = settings.getIdpx509cert();
-				List<X509Certificate> certList = new ArrayList<X509Certificate>();
+				List<X509Certificate> certList = new ArrayList<>();
 				List<X509Certificate> multipleCertList = settings.getIdpx509certMulti();
 
-				if (multipleCertList != null && multipleCertList.size() != 0) {
+				if (multipleCertList != null && !multipleCertList.isEmpty()) {
 					certList.addAll(multipleCertList);
 				}
 
@@ -318,11 +308,11 @@ public class SamlResponse {
 				}
 			}
 
-			LOGGER.debug("SAMLResponse validated --> " + samlResponseString);
+			LOGGER.debug("SAMLResponse validated --> {}", samlResponseString);
 			return true;
 		} catch (Exception e) {
 			error = e.getMessage();
-			LOGGER.debug("SAMLResponse invalid --> " + samlResponseString);
+			LOGGER.debug("SAMLResponse invalid --> {}", samlResponseString);
 			LOGGER.error(error);
 			return false;
 		}
@@ -354,20 +344,16 @@ public class SamlResponse {
 				if (subjectConfirmationDataNodes.item(c).getLocalName() != null && subjectConfirmationDataNodes.item(c).getLocalName().equals("SubjectConfirmationData")) {
 
 					Node recipient = subjectConfirmationDataNodes.item(c).getAttributes().getNamedItem("Recipient");
-					if (recipient == null) {
-						validationIssues.add(new SubjectConfirmationIssue(i, "SubjectConfirmationData doesn't contain a Recipient"));
-						continue;
-					}
-
-					if (!recipient.getNodeValue().equals(currentUrl)) {
-						validationIssues.add(new SubjectConfirmationIssue(i, "SubjectConfirmationData doesn't match a valid Recipient"));
+					final SubjectConfirmationIssue issue = validateRecipient(recipient, i);
+					if (issue != null) {
+						validationIssues.add(issue);
 						continue;
 					}
 
 					Node inResponseTo = subjectConfirmationDataNodes.item(c).getAttributes().getNamedItem("InResponseTo");
 					if (inResponseTo == null && responseInResponseTo != null ||
 							inResponseTo != null && !inResponseTo.getNodeValue().equals(responseInResponseTo)) {
-						validationIssues.add(new SubjectConfirmationIssue(i, "SubjectConfirmationData has an invalid InResponseTo value"));;
+						validationIssues.add(new SubjectConfirmationIssue(i, "SubjectConfirmationData has an invalid InResponseTo value"));
 						continue;
 					}
 
@@ -417,11 +403,14 @@ public class SamlResponse {
      *
      * @return the Name ID Data (Value, Format, NameQualifier, SPNameQualifier)
      *
-	 * @throws Exception 
+	 * @throws Exception
      *
      */
-	public HashMap<String,String> getNameIdData() throws Exception {
-		HashMap<String,String> nameIdData = new HashMap<String, String>();
+	public Map<String,String> getNameIdData() throws Exception {
+		if (this.nameIdData != null) {
+			return this.nameIdData;
+		}
+		Map<String,String> nameIdData = new HashMap<>();
 
 		NodeList encryptedIDNodes = this.queryAssertion("/saml:Subject/saml:EncryptedID");
 		NodeList nameIdNodes;
@@ -448,7 +437,7 @@ public class SamlResponse {
 
 		if (nameIdNodes != null && nameIdNodes.getLength() == 1) {
 			nameIdElem = (Element) nameIdNodes.item(0);
-			
+
 			if (nameIdElem != null) {
 				String value = nameIdElem.getTextContent();
 				if (settings.isStrict() && value.isEmpty()) {
@@ -462,11 +451,8 @@ public class SamlResponse {
 				}
 				if (nameIdElem.hasAttribute("SPNameQualifier")) {
 					String spNameQualifier = nameIdElem.getAttribute("SPNameQualifier");
-					if (settings.isStrict() && !spNameQualifier.equals(settings.getSpEntityId())) {
-						throw new ValidationError("The SPNameQualifier value mistmatch the SP entityID value.", ValidationError.SP_NAME_QUALIFIER_NAME_MISMATCH);
-					} else {
-						nameIdData.put("SPNameQualifier", spNameQualifier);
-					}
+					validateSpNameQualifier(spNameQualifier);
+					nameIdData.put("SPNameQualifier", spNameQualifier);
 				}
 				if (nameIdElem.hasAttribute("NameQualifier")) {
 					nameIdData.put("NameQualifier", nameIdElem.getAttribute("NameQualifier"));
@@ -477,6 +463,7 @@ public class SamlResponse {
 				throw new ValidationError("No name id found in Document.", ValidationError.NO_NAMEID);
 			}
 		}
+		this.nameIdData = nameIdData;
 		return nameIdData;
 	}
 
@@ -485,13 +472,13 @@ public class SamlResponse {
      *
      * @return string Name ID Value
      *
-     * @throws Exception 
+     * @throws Exception
      */
 	public String getNameId() throws Exception {
-		HashMap<String,String> nameIdData = getNameIdData();
+		Map<String,String> nameIdData = getNameIdData();
 		String nameID = null;
 		if (!nameIdData.isEmpty()) {
-			LOGGER.debug("SAMLResponse has NameID --> " + nameIdData.get("Value"));
+			LOGGER.debug("SAMLResponse has NameID --> {}", nameIdData.get("Value"));
 			nameID = nameIdData.get("Value");
 		}
 		return nameID;
@@ -505,13 +492,47 @@ public class SamlResponse {
      * @throws Exception
      */
 	public String getNameIdFormat() throws Exception {
-		HashMap<String,String> nameIdData = getNameIdData();
+		Map<String,String> nameIdData = getNameIdData();
 		String nameidFormat = null;
 		if (!nameIdData.isEmpty() && nameIdData.containsKey("Format")) {
-			LOGGER.debug("SAMLResponse has NameID Format --> " + nameIdData.get("Format"));
+			LOGGER.debug("SAMLResponse has NameID Format --> {}", nameIdData.get("Format"));
 			nameidFormat = nameIdData.get("Format");
 		}
 		return nameidFormat;
+	}
+
+    /**
+     * Gets the NameID NameQualifier provided from the SAML Response String.
+     *
+     * @return string NameQualifier
+     *
+     * @throws Exception
+     */
+	public String getNameIdNameQualifier() throws Exception {
+		Map<String,String> nameIdData = getNameIdData();
+		String nameQualifier = null;
+		if (!nameIdData.isEmpty() && nameIdData.containsKey("NameQualifier")) {
+			LOGGER.debug("SAMLResponse has NameID NameQualifier --> " + nameIdData.get("NameQualifier"));
+			nameQualifier = nameIdData.get("NameQualifier");
+		}
+		return nameQualifier;
+	}
+
+    /**
+     * Gets the NameID SP NameQualifier provided from the SAML Response String.
+     *
+     * @return string SP NameQualifier
+     *
+     * @throws Exception
+     */
+	public String getNameIdSPNameQualifier() throws Exception {
+		Map<String,String> nameIdData = getNameIdData();
+		String spNameQualifier = null;
+		if (!nameIdData.isEmpty() && nameIdData.containsKey("SPNameQualifier")) {
+			LOGGER.debug("SAMLResponse has NameID NameQualifier --> " + nameIdData.get("SPNameQualifier"));
+			spNameQualifier = nameIdData.get("SPNameQualifier");
+		}
+		return spNameQualifier;
 	}
 
 	/**
@@ -577,42 +598,15 @@ public class SamlResponse {
 	 * @param dom
 	 *            The Response as XML
 	 *
-	 * @return array with the code and a message
+	 * @return SamlResponseStatus
 	 *
 	 * @throws IllegalArgumentException
 	 *             if the response not contain status or if Unexpected XPath error
 	 * @throws ValidationError 
 	 */
 	public static SamlResponseStatus getStatus(Document dom) throws ValidationError {
-		try {
-			String statusExpr = "/samlp:Response/samlp:Status";
-
-			NodeList statusEntry = Util.query(dom, statusExpr, null);
-			if (statusEntry.getLength() != 1) {
-				throw new ValidationError("Missing Status on response", ValidationError.MISSING_STATUS);
-			}
-			NodeList codeEntry;
-
-			codeEntry = Util.query(dom, statusExpr + "/samlp:StatusCode", (Element) statusEntry.item(0));
-
-			if (codeEntry.getLength() != 1) {
-				throw new ValidationError("Missing Status Code on response", ValidationError.MISSING_STATUS_CODE);
-			}
-
-			String stausCode = codeEntry.item(0).getAttributes().getNamedItem("Value").getNodeValue();
-			SamlResponseStatus status = new SamlResponseStatus(stausCode);
-
-			NodeList messageEntry = Util.query(dom, statusExpr + "/samlp:StatusMessage",
-					(Element) statusEntry.item(0));
-			if (messageEntry.getLength() == 1) {
-				status.setStatusMessage(messageEntry.item(0).getTextContent());
-			}
-			return status;
-		} catch (XPathExpressionException e) {
-			String error = "Unexpected error in getStatus." +  e.getMessage();
-			LOGGER.error(error);
-			throw new IllegalArgumentException(error);
-		}
+		String statusXpath = "/samlp:Response/samlp:Status";
+		return Util.getStatus(statusXpath, dom);
 	}
 
 	/**
@@ -959,12 +953,12 @@ public class SamlResponse {
 
 	/**
      * Aux method to set the destination url
-     * 
-	 * @param urld 
+     *
+	 * @param url
 	 *				the url to set as currentUrl
      */
-	public void setDestinationUrl(String urld) {
-		currentUrl = urld;
+	public void setDestinationUrl(String url) {
+		currentUrl = url;
 	}
 
 	/**
@@ -1031,7 +1025,7 @@ public class SamlResponse {
 	}
 
 	/**
-     * Extracts nodes that match the query from the DOMDocument (Response Menssage)
+     * Extracts nodes that match the query from the DOMDocument (Response Message)
      *
      * @param nameQuery
      *				Xpath Expression
@@ -1065,8 +1059,9 @@ public class SamlResponse {
 	 * @throws SAXException
 	 * @throws ParserConfigurationException
 	 * @throws SettingsException
+	 * @throws ValidationError
 	 */
-	private Document decryptAssertion(Document dom) throws XPathExpressionException, ParserConfigurationException, SAXException, IOException, SettingsException {		
+	private Document decryptAssertion(Document dom) throws XPathExpressionException, ParserConfigurationException, SAXException, IOException, SettingsException, ValidationError {
 		PrivateKey key = settings.getSPkey();
 
 		if (key == null) {
@@ -1074,11 +1069,17 @@ public class SamlResponse {
 		}
 
 		NodeList encryptedDataNodes = Util.query(dom, "/samlp:Response/saml:EncryptedAssertion/xenc:EncryptedData");
+		if (encryptedDataNodes.getLength() == 0) {
+		    throw new ValidationError("No /samlp:Response/saml:EncryptedAssertion/xenc:EncryptedData element found", ValidationError.MISSING_ENCRYPTED_ELEMENT);
+		}
 		Element encryptedData = (Element) encryptedDataNodes.item(0);
 		Util.decryptElement(encryptedData, key);
 
 		// We need to Remove the saml:EncryptedAssertion Node
 		NodeList AssertionDataNodes = Util.query(dom, "/samlp:Response/saml:EncryptedAssertion/saml:Assertion");
+		if (encryptedDataNodes.getLength() == 0) {
+		    throw new ValidationError("No /samlp:Response/saml:EncryptedAssertion/saml:Assertion element found", ValidationError.MISSING_ENCRYPTED_ELEMENT);
+		}
 		Node assertionNode = AssertionDataNodes.item(0);
 		assertionNode.getParentNode().getParentNode().replaceChild(assertionNode, assertionNode.getParentNode());
 
@@ -1099,7 +1100,7 @@ public class SamlResponse {
 		if (encrypted) {
 			xml = Util.convertDocumentToString(decryptedDocument);
 		} else {
-        	xml = samlResponseString;
+			xml = samlResponseString;
 		}
 		return xml; 
 	}
@@ -1113,8 +1114,71 @@ public class SamlResponse {
 		if (encrypted) {
 			doc = decryptedDocument;
 		} else {
-        	doc = samlResponseDocument;
+			doc = samlResponseDocument;
 		}
 		return doc;
+	}
+
+	/**
+	 * Validates the audiences.
+	 *
+	 * @throws XPathExpressionException
+	 * @throws ValidationError
+	 */
+	protected void validateAudiences() throws XPathExpressionException, ValidationError {
+		final List<String> validAudiences = getAudiences();
+		if (!validAudiences.isEmpty() && !validAudiences.contains(settings.getSpEntityId())) {
+			throw new ValidationError(settings.getSpEntityId() + " is not a valid audience for this Response", ValidationError.WRONG_AUDIENCE);
+		}
+	}
+
+	/**
+	 * Validate the destination.
+	 *
+	 * @param element element with the destination attribute
+	 * @throws ValidationError
+	 */
+	protected void validateDestination(final Element element) throws ValidationError {
+		if (element.hasAttribute("Destination")) {
+			final String destinationUrl = element.getAttribute("Destination");
+			if (destinationUrl != null) {
+				if (destinationUrl.isEmpty()) {
+					throw new ValidationError("The response has an empty Destination value", ValidationError.EMPTY_DESTINATION);
+				} else if (!destinationUrl.equals(currentUrl)) {
+					throw new ValidationError("The response was received at " + currentUrl + " instead of " + destinationUrl, ValidationError.WRONG_DESTINATION);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Validate a subject confirmation recipient.
+	 *
+	 * @param recipient recipient node
+	 * @param index index of the subject confirmation node
+	 * @return a subject confirmation issue or null
+	 */
+	protected SubjectConfirmationIssue validateRecipient(final Node recipient, final int index) {
+		if (recipient == null) {
+			return new SubjectConfirmationIssue(index, "SubjectConfirmationData doesn't contain a Recipient");
+		}
+
+		if (!recipient.getNodeValue().equals(currentUrl)) {
+			return new SubjectConfirmationIssue(index, "SubjectConfirmationData doesn't match a valid Recipient");
+		}
+
+		return null;
+	}
+
+	/**
+	 * Validates a SPNameQualifier.
+	 *
+	 * @param spNameQualifier the SPNameQualifier
+	 * @throws ValidationError
+	 */
+	protected void validateSpNameQualifier(final String spNameQualifier) throws ValidationError {
+		if (settings.isStrict() && !spNameQualifier.equals(settings.getSpEntityId())) {
+			throw new ValidationError("The SPNameQualifier value mismatch the SP entityID value.", ValidationError.SP_NAME_QUALIFIER_NAME_MISMATCH);
+		}
 	}
 }

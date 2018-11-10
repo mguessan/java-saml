@@ -28,9 +28,11 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Calendar;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.zip.Deflater;
@@ -55,6 +57,7 @@ import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathExpression;
 import javax.xml.xpath.XPathExpressionException;
 import javax.xml.xpath.XPathFactory;
+import javax.xml.xpath.XPathFactoryConfigurationException;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -86,6 +89,7 @@ import org.xml.sax.SAXException;
 
 import com.onelogin.saml2.exception.ValidationError;
 import com.onelogin.saml2.exception.XMLEntityException;
+import com.onelogin.saml2.model.SamlResponseStatus;
 
 
 /**
@@ -94,6 +98,7 @@ import com.onelogin.saml2.exception.XMLEntityException;
  * A class that contains several auxiliary methods related to the SAML protocol
  */
 public final class Util {
+
 	/**
      * Private property to construct a logger for this class.
      */
@@ -107,23 +112,28 @@ public final class Util {
 	/** Indicates if JAXP 1.5 support has been detected. */
 	private static boolean JAXP_15_SUPPORTED = isJaxp15Supported();
 
+	static {
+		System.setProperty("org.apache.xml.security.ignoreLineBreaks", "true");
+		org.apache.xml.security.Init.init();
+	}
+
 	private Util() {
 	      //not called
 	}
 
 	/**
-	 * Method which uses the recommended way ( https://docs.oracle.com/javase/tutorial/jaxp/properties/error.html ) 
+	 * Method which uses the recommended way ( https://docs.oracle.com/javase/tutorial/jaxp/properties/error.html )
 	 * of checking if JAXP >= 1.5 options are supported. Needed if the project which uses this library also has
-	 * Xerces in it's classpath. 
-	 * 
+	 * Xerces in it's classpath.
+	 *
 	 * If for whatever reason this method cannot determine if JAXP 1.5 properties are supported it will indicate the
 	 * options are supported. This way we don't accidentally disable configuration options.
 	 *
 	 * @return
 	 */
 	public static boolean isJaxp15Supported() {
-		boolean supported = true;		
-		
+		boolean supported = true;
+
 		try {
 			SAXParserFactory spf = SAXParserFactory.newInstance();
 			SAXParser parser = spf.newSAXParser();
@@ -137,10 +147,10 @@ public final class Util {
 		} catch (Exception e) {
 			LOGGER.info("An exception occurred while trying to determine if JAXP 1.5 options are supported.", e);
 		}
-		
+
 		return supported;
 	}
-	
+
 	/**
 	 * This function load an XML string in a save way. Prevent XEE/XXE Attacks
 	 *
@@ -164,6 +174,37 @@ public final class Util {
 		return null;
 	}
 
+	private static XPathFactory getXPathFactory() {
+		try {
+			/*
+			 * Since different environments may return a different XPathFactoryImpl, we should try to initialize the factory
+			 * using specific implementation that way the XML is parsed in an expected way.
+			 *
+			 * We should use the standard XPathFactoryImpl that comes standard with Java.
+			 *
+			 * NOTE: We could implement a check to see if the "javax.xml.xpath.XPathFactory" System property exists and is set
+			 *       to a value, if people have issues with using the specified implementor. This would allow users to always
+			 *       override the implementation if they so need to.
+			 */
+			return XPathFactory.newInstance(XPathFactory.DEFAULT_OBJECT_MODEL_URI, "com.sun.org.apache.xpath.internal.jaxp.XPathFactoryImpl", java.lang.ClassLoader.getSystemClassLoader());
+		} catch (XPathFactoryConfigurationException e) {
+			LOGGER.debug("Error generating XPathFactory instance: " + e.getMessage(), e);
+		}
+
+		/*
+		 * If the expected XPathFactory did not exist, we fallback to loading the one defined as the default.
+		 *
+		 * If this is still throwing an error, the developer can set the "javax.xml.xpath.XPathFactory" system property
+		 * to specify the default XPathFactoryImpl implementation to use. For example:
+		 *
+		 * -Djavax.xml.xpath.XPathFactory:http://java.sun.com/jaxp/xpath/dom=net.sf.saxon.xpath.XPathFactoryImpl
+		 * -Djavax.xml.xpath.XPathFactory:http://java.sun.com/jaxp/xpath/dom=com.sun.org.apache.xpath.internal.jaxp.XPathFactoryImpl
+		 *
+		 */
+		return XPathFactory.newInstance();
+	}
+
+
 	/**
 	 * Extracts a node from the DOMDocument
 	 *
@@ -180,7 +221,7 @@ public final class Util {
 	 */
 	public static NodeList query(Document dom, String query, Node context) throws XPathExpressionException {
 		NodeList nodeList;
-		XPath xpath = XPathFactory.newInstance().newXPath();
+		XPath xpath = getXPathFactory().newXPath();
 		xpath.setNamespaceContext(new NamespaceContext() {
 
 			@Override
@@ -255,7 +296,7 @@ public final class Util {
 
 			Schema schema = SchemaFactory.loadFromUrl(schemaUrl);
 			Validator validator = schema.newValidator();
-			
+
 			if (JAXP_15_SUPPORTED) {
 				// Prevent XXE attacks
 				validator.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
@@ -287,9 +328,9 @@ public final class Util {
 	 *
 	 * @return the Document object
 	 *
-	 * @throws ParserConfigurationException 
-	 * @throws SAXException 
-	 * @throws IOException 
+	 * @throws ParserConfigurationException
+	 * @throws SAXException
+	 * @throws IOException
 	 */
 	public static Document convertStringToDocument(String xmlStr) throws ParserConfigurationException, SAXException, IOException {
 		return parseXML(new InputSource(new StringReader(xmlStr)));
@@ -303,19 +344,19 @@ public final class Util {
 	 *
 	 * @return the Document object
 	 *
-	 * @throws ParserConfigurationException 
-	 * @throws SAXException 
-	 * @throws IOException 
+	 * @throws ParserConfigurationException
+	 * @throws SAXException
+	 * @throws IOException
 	 */
 	public static Document parseXML(InputSource inputSource) throws ParserConfigurationException, SAXException, IOException {
 		DocumentBuilderFactory docfactory = DocumentBuilderFactory.newInstance();
 		docfactory.setNamespaceAware(true);
-		
-		// do not expand entity reference nodes 
+
+		// do not expand entity reference nodes
 		docfactory.setExpandEntityReferences(false);
-		
+
 		docfactory.setAttribute("http://java.sun.com/xml/jaxp/properties/schemaLanguage", XMLConstants.W3C_XML_SCHEMA_NS_URI);
-		
+
 		// Add various options explicitly to prevent XXE attacks.
 		// (adding try/catch around every setAttribute just in case a specific parser does not support it.
 		try {
@@ -349,7 +390,7 @@ public final class Util {
 
 		// Loop through the doc and tag every element with an ID attribute
 		// as an XML ID node.
-		XPath xpath = XPathFactory.newInstance().newXPath();
+		XPath xpath = getXPathFactory().newXPath();
 		XPathExpression expr;
 		try {
 			expr = xpath.compile("//*[@ID]");
@@ -378,19 +419,18 @@ public final class Util {
 	 * @return the Document object
 	 */
 	public static String convertDocumentToString(Document doc, Boolean c14n) {
-		org.apache.xml.security.Init.init();
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();
 		if (c14n) {
 			XMLUtils.outputDOMc14nWithComments(doc, baos);
 		} else {
 			XMLUtils.outputDOM(doc, baos);
 		}
-		
+
 		return Util.toStringUtf8(baos.toByteArray());
 	}
-	
+
 	/**
-	 * Converts an XML in Document format in a String without applying the c14n transformation 
+	 * Converts an XML in Document format in a String without applying the c14n transformation
 	 *
 	 * @param doc
 	 * 				The Document object
@@ -414,12 +454,12 @@ public final class Util {
 	public static String formatCert(String cert, Boolean heads) {
 		String x509cert = StringUtils.EMPTY;
 
-		if (cert != null) {		
+		if (cert != null) {
 			x509cert = cert.replace("\\x0D", "").replace("\r", "").replace("\n", "").replace(" ", "");
 
 			if (!StringUtils.isEmpty(x509cert)) {
 				x509cert = x509cert.replace("-----BEGINCERTIFICATE-----", "").replace("-----ENDCERTIFICATE-----", "");
-			
+
 				if (heads) {
 					x509cert = "-----BEGIN CERTIFICATE-----\n" + chunkString(x509cert, 64) + "-----END CERTIFICATE-----";
 				}
@@ -443,27 +483,27 @@ public final class Util {
 
 		if (key != null) {
 			xKey = key.replace("\\x0D", "").replace("\r", "").replace("\n", "").replace(" ", "");
-	
+
 			if (!StringUtils.isEmpty(xKey)) {
 				if (xKey.startsWith("-----BEGINPRIVATEKEY-----")) {
 					xKey = xKey.replace("-----BEGINPRIVATEKEY-----", "").replace("-----ENDPRIVATEKEY-----", "");
-	
+
 					if (heads) {
 						xKey = "-----BEGIN PRIVATE KEY-----\n" + chunkString(xKey, 64) + "-----END PRIVATE KEY-----";
 					}
 				} else {
-	
+
 					xKey = xKey.replace("-----BEGINRSAPRIVATEKEY-----", "").replace("-----ENDRSAPRIVATEKEY-----", "");
-	
+
 					if (heads) {
 						xKey = "-----BEGIN RSA PRIVATE KEY-----\n" + chunkString(xKey, 64) + "-----END RSA PRIVATE KEY-----";
 					}
 				}
 			}
 		}
-			
+
 		return xKey;
-	}	
+	}
 
 	/**
 	 * chunk a string
@@ -487,7 +527,7 @@ public final class Util {
 		return newStr;
 	}
 
-	
+
 	/**
 	 * Load X.509 certificate
 	 *
@@ -496,13 +536,13 @@ public final class Util {
 	 *
 	 * @return Loaded Certificate. X509Certificate object
 	 *
-	 * @throws CertificateException 
+	 * @throws CertificateException
 	 *
 	 */
 	public static X509Certificate loadCert(String certString) throws CertificateException {
 		certString = formatCert(certString, true);
 		X509Certificate cert;
-		
+
 		try {
 			cert = (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(
 				new ByteArrayInputStream(certString.getBytes("UTF-8")));
@@ -516,21 +556,19 @@ public final class Util {
 
 	/**
 	 * Load private key
-	 * 
+	 *
 	 * @param keyString
 	 * 				 private key in string format
 	 *
 	 * @return Loaded private key. PrivateKey object
 	 *
-	 * @throws GeneralSecurityException 
+	 * @throws GeneralSecurityException
 	 */
 	public static PrivateKey loadPrivateKey(String keyString) throws GeneralSecurityException {
-		org.apache.xml.security.Init.init();
-
 		String extractedKey = formatPrivateKey(keyString, false);
 		extractedKey = chunkString(extractedKey, 64);
 		KeyFactory kf = KeyFactory.getInstance("RSA");
-		
+
 		PrivateKey privKey;
 		try {
 			byte[] encoded = Base64.decodeBase64(extractedKey);
@@ -546,7 +584,7 @@ public final class Util {
 
 	/**
 	 * Calculates the fingerprint of a x509cert
-	 * 
+	 *
 	 * @param x509cert
 	 * 				 x509 certificate
 	 * @param alg
@@ -578,7 +616,7 @@ public final class Util {
 
 	/**
 	 * Calculates the SHA-1 fingerprint of a x509cert
-	 * 
+	 *
 	 * @param x509cert
 	 * 				 x509 certificate
 	 *
@@ -611,7 +649,7 @@ public final class Util {
 			LOGGER.debug("Error converting certificate on PEM format: "+ e.getMessage(), e);
 		}
 		return pemCert;
-	}	
+	}
 
 	/**
 	 * Loads a resource located at a relative path
@@ -661,7 +699,7 @@ public final class Util {
 		}
 		// Base64 decoder
 		byte[] decoded = Base64.decodeBase64(input);
-		
+
 		// Inflater
 		try {
 			Inflater decompresser = new Inflater(true);
@@ -671,7 +709,7 @@ public final class Util {
 		    long limit = 0;
 		    while(!decompresser.finished() && limit < 150) {
 		    	int resultLength = decompresser.inflate(result);
-		    	limit += 1; 
+		    	limit += 1;
 		    	inflated += new String(result, 0, resultLength, "UTF-8");
 		    }
 		    decompresser.end();
@@ -688,7 +726,7 @@ public final class Util {
 	 *				String input
 	 *
 	 * @return the deflated and base64 encoded string
-	 * @throws IOException 
+	 * @throws IOException
 	 */
 	public static String deflatedBase64encoded(String input) throws IOException {
 		// Deflater
@@ -721,7 +759,7 @@ public final class Util {
 	 *
 	 * @return the base64 encoded string
 	 */
-	public static String base64encoder(String input) {		
+	public static String base64encoder(String input) {
 		return base64encoder(toBytesUtf8(input));
 	}
 
@@ -733,7 +771,7 @@ public final class Util {
 	 *
 	 * @return the base64 decoded bytes
 	 */
-	public static byte[] base64decoder(byte [] input) {		
+	public static byte[] base64decoder(byte [] input) {
 		return Base64.decodeBase64(input);
 	}
 
@@ -745,7 +783,7 @@ public final class Util {
 	 *
 	 * @return the base64 decoded bytes
 	 */
-	public static byte[] base64decoder(String input) {		
+	public static byte[] base64decoder(String input) {
 		return base64decoder(toBytesUtf8(input));
 	}
 
@@ -802,14 +840,12 @@ public final class Util {
 	 * 				 Signature algorithm method
 	 *
 	 * @return the signature
-	 * 
+	 *
 	 * @throws NoSuchAlgorithmException
 	 * @throws InvalidKeyException
 	 * @throws SignatureException
 	 */
 	public static byte[] sign(String text, PrivateKey key, String signAlgorithm) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-		org.apache.xml.security.Init.init();
-
         if (signAlgorithm == null) {
         	signAlgorithm = Constants.RSA_SHA1;
         }
@@ -843,7 +879,7 @@ public final class Util {
 			convertedSignatureAlg = "SHA384withRSA";
 		} else if (sign.equals(Constants.RSA_SHA512)) {
 			convertedSignatureAlg = "SHA512withRSA";
-		} else {			
+		} else {
 			convertedSignatureAlg = "SHA1withRSA";
 		}
 
@@ -867,11 +903,11 @@ public final class Util {
 			final NodeList signatures = query(doc, xpath);
 			return signatures.getLength() == 1 && validateSignNode(signatures.item(0), cert, fingerprint, alg);
 		} catch (XPathExpressionException e) {
-			LOGGER.warn("Failed to find signature nodes", e);		
+			LOGGER.warn("Failed to find signature nodes", e);
 		}
 		return false;
 	}
-	
+
 	/**
 	 * Validate the signature pointed to by the xpath
 	 *
@@ -926,7 +962,7 @@ public final class Util {
 
 			if (signNodesToValidate.getLength() == 0) {
 				signNodesToValidate = query(doc, "/md:EntityDescriptor/ds:Signature");
-				
+
 				if (signNodesToValidate.getLength() == 0) {
 					signNodesToValidate = query(doc, "/md:EntityDescriptor/md:SPSSODescriptor/ds:Signature|/md:EntityDescriptor/IDPSSODescriptor/ds:Signature");
 				}
@@ -946,7 +982,7 @@ public final class Util {
 		}
 		return false;
     }
-    
+
 	/**
 	 * Validate signature of the Node.
 	 *
@@ -964,10 +1000,13 @@ public final class Util {
 	public static Boolean validateSignNode(Node signNode, X509Certificate cert, String fingerprint, String alg) {
 		Boolean res = false;
 		try {
-			org.apache.xml.security.Init.init();
-
 			Element sigElement = (Element) signNode;
 			XMLSignature signature = new XMLSignature(sigElement, "", true);
+
+			String sigMethodAlg = signature.getSignedInfo().getSignatureMethodURI();
+			if (!isAlgorithmWhitelisted(sigMethodAlg)){
+				throw new Exception(sigMethodAlg + " is not a valid supported algorithm");
+			}
 
 			if (cert != null) {
 				res = signature.checkSignatureValue(cert);
@@ -990,6 +1029,36 @@ public final class Util {
 	}
 
 	/**
+	 * Whitelist the XMLSignature algorithm
+	 *
+	 * @param signNode
+	 * 				 The document we should validate
+	 * @param cert
+	 * 				 The public certificate
+	 * @param fingerprint
+	 * 				 The fingerprint of the public certificate
+	 * @param alg
+	 * 				 The signature algorithm method
+	 *
+	 * @return True if the sign is valid, false otherwise.
+	 */
+	public static boolean isAlgorithmWhitelisted(String alg) {
+		Set<String> whiteListedAlgorithm = new HashSet<String>();
+		whiteListedAlgorithm.add(Constants.DSA_SHA1);
+		whiteListedAlgorithm.add(Constants.RSA_SHA1);
+		whiteListedAlgorithm.add(Constants.RSA_SHA256);
+		whiteListedAlgorithm.add(Constants.RSA_SHA384);
+		whiteListedAlgorithm.add(Constants.RSA_SHA512);
+
+		Boolean whitelisted = false;
+		if (whiteListedAlgorithm.contains(alg)) {
+			whitelisted = true;
+		}
+
+		return whitelisted;
+	}
+
+	/**
 	 * Decrypt an encrypted element.
 	 *
 	 * @param encryptedDataElement
@@ -999,8 +1068,6 @@ public final class Util {
 	 */
 	public static void decryptElement(Element encryptedDataElement, PrivateKey inputKey) {
 		try {
-			org.apache.xml.security.Init.init();
-
 			XMLCipher xmlCipher = XMLCipher.getInstance();
 			xmlCipher.init(XMLCipher.DECRYPT_MODE, null);
 
@@ -1048,7 +1115,7 @@ public final class Util {
 	 *
  	 * @return the clone of the Document object
  	 *
-	 * @throws ParserConfigurationException 
+	 * @throws ParserConfigurationException
 	 */
 	public static Document copyDocument(Document source) throws ParserConfigurationException
 	{
@@ -1061,7 +1128,7 @@ public final class Util {
         Document copiedDocument = db.newDocument();
         Node copiedRoot = copiedDocument.importNode(originalRoot, true);
         copiedDocument.appendChild(copiedRoot);
-        
+
         return copiedDocument;
 	}
 
@@ -1076,15 +1143,36 @@ public final class Util {
 	 * 				 The public certificate
 	 * @param signAlgorithm
 	 * 				 Signature Algorithm
-	 * 
+	 *
 	 * @return the signed document in string format
-	 * 
+	 *
 	 * @throws XMLSecurityException
 	 * @throws XPathExpressionException
 	 */
 	public static String addSign(Document document, PrivateKey key, X509Certificate certificate, String signAlgorithm) throws XMLSecurityException, XPathExpressionException {
-		org.apache.xml.security.Init.init();
+		return addSign(document, key, certificate, signAlgorithm, Constants.SHA1);
+	}
 
+	/**
+	 * Signs the Document using the specified signature algorithm with the private key and the public certificate.
+	 *
+	 * @param document
+	 * 				 The document to be signed
+	 * @param key
+	 * 				 The private key
+	 * @param certificate
+	 * 				 The public certificate
+	 * @param signAlgorithm
+	 * 				 Signature Algorithm
+	 * @param digestAlgorithm
+	 * 				 Digest Algorithm
+	 *
+	 * @return the signed document in string format
+	 *
+	 * @throws XMLSecurityException
+	 * @throws XPathExpressionException
+	 */
+	public static String addSign(Document document, PrivateKey key, X509Certificate certificate, String signAlgorithm, String digestAlgorithm) throws XMLSecurityException, XPathExpressionException {
 		// Check arguments.
 		if (document == null) {
 			throw new IllegalArgumentException("Provided document was null");
@@ -1097,7 +1185,7 @@ public final class Util {
 		if (key == null) {
 			throw new IllegalArgumentException("Provided key was null");
 		}
-		
+
 		if (certificate == null) {
 			throw new IllegalArgumentException("Provided certificate was null");
 		}
@@ -1105,10 +1193,13 @@ public final class Util {
 		if (signAlgorithm == null || signAlgorithm.isEmpty()) {
 			signAlgorithm = Constants.RSA_SHA1;
 		}
+		if (digestAlgorithm == null || digestAlgorithm.isEmpty()) {
+			digestAlgorithm = Constants.SHA1;
+		}
 
-		// document.normalizeDocument();
+		document.normalizeDocument();
 
-		String c14nMethod = Constants.C14N_WC;
+		String c14nMethod = Constants.C14NEXC;
 
 		// Signature object
 		XMLSignature sig = new XMLSignature(document, null, signAlgorithm, c14nMethod);
@@ -1116,34 +1207,46 @@ public final class Util {
 		// Including the signature into the document before sign, because
 		// this is an envelop signature
 		Element root = document.getDocumentElement();
-		document.setXmlStandalone(false);		
+		document.setXmlStandalone(false);
 
 		// If Issuer, locate Signature after Issuer, Otherwise as first child.
 		NodeList issuerNodes = Util.query(document, "//saml:Issuer", null);
+		Element elemToSign = null;
 		if (issuerNodes.getLength() > 0) {
 			Node issuer =  issuerNodes.item(0);
 			root.insertBefore(sig.getElement(), issuer.getNextSibling());
+			elemToSign = (Element) issuer.getParentNode();
 		} else {
-			root.insertBefore(sig.getElement(), root.getFirstChild());
+			NodeList entitiesDescriptorNodes = Util.query(document, "//md:EntitiesDescriptor", null);
+			if (entitiesDescriptorNodes.getLength() > 0) {
+				elemToSign = (Element)entitiesDescriptorNodes.item(0);
+			} else {
+				NodeList entityDescriptorNodes = Util.query(document, "//md:EntityDescriptor", null);
+				if (entityDescriptorNodes.getLength() > 0) {
+					elemToSign = (Element)entityDescriptorNodes.item(0);
+				} else {
+					elemToSign = root;
+				}
+			}
+			root.insertBefore(sig.getElement(), elemToSign.getFirstChild());
 		}
 
-		String id = root.getAttribute("ID");
+		String id = elemToSign.getAttribute("ID");
 
 		String reference = id;
 		if (!id.isEmpty()) {
-			root.setIdAttributeNS(null, "ID", true);
+			elemToSign.setIdAttributeNS(null, "ID", true);
 			reference = "#" + id;
 		}
 
 		// Create the transform for the document
 		Transforms transforms = new Transforms(document);
 		transforms.addTransform(Constants.ENVSIG);
-		//transforms.addTransform(Transforms.TRANSFORM_C14N_OMIT_COMMENTS);
 		transforms.addTransform(c14nMethod);
-		sig.addDocument(reference, transforms, Constants.SHA1);
+		sig.addDocument(reference, transforms, digestAlgorithm);
 
 		// Add the certification info
-		sig.addKeyInfo(certificate);			
+		sig.addKeyInfo(certificate);
 
 		// Sign the document
 		sig.sign(key);
@@ -1162,14 +1265,16 @@ public final class Util {
 	 * 				 The public certificate
 	 * @param signAlgorithm
 	 * 				 Signature Algorithm
-	 * 
+	 * @param digestAlgorithm
+	 * 				 Digest Algorithm
+	 *
 	 * @return the signed document in string format
 	 *
 	 * @throws ParserConfigurationException
 	 * @throws XMLSecurityException
 	 * @throws XPathExpressionException
 	 */
-	public static String addSign(Node node, PrivateKey key, X509Certificate certificate, String signAlgorithm) throws ParserConfigurationException, XPathExpressionException, XMLSecurityException {
+	public static String addSign(Node node, PrivateKey key, X509Certificate certificate, String signAlgorithm, String digestAlgorithm) throws ParserConfigurationException, XPathExpressionException, XMLSecurityException {
 		// Check arguments.
 		if (node == null) {
 			throw new IllegalArgumentException("Provided node was null");
@@ -1181,9 +1286,31 @@ public final class Util {
 		Node newNode = doc.importNode(node, true);
 		doc.appendChild(newNode);
 
-		return addSign(doc, key, certificate, signAlgorithm);
-	}	
-	
+		return addSign(doc, key, certificate, signAlgorithm, digestAlgorithm);
+	}
+
+	/**
+	 * Signs a Node using the specified signature algorithm with the private key and the public certificate.
+	 *
+	 * @param node
+	 * 				 The Node to be signed
+	 * @param key
+	 * 				 The private key
+	 * @param certificate
+	 * 				 The public certificate
+	 * @param signAlgorithm
+	 * 				 Signature Algorithm
+	 *
+	 * @return the signed document in string format
+	 *
+	 * @throws ParserConfigurationException
+	 * @throws XMLSecurityException
+	 * @throws XPathExpressionException
+	 */
+	public static String addSign(Node node, PrivateKey key, X509Certificate certificate, String signAlgorithm) throws ParserConfigurationException, XPathExpressionException, XMLSecurityException {
+		return addSign(node, key, certificate, signAlgorithm, Constants.SHA1);
+	}
+
 	/**
 	 * Validates signed binary data (Used to validate GET Signature).
 	 *
@@ -1195,25 +1322,23 @@ public final class Util {
 	 * 				 The public certificate
 	 * @param signAlg
 	 * 				 Signature Algorithm
-	 * 
+	 *
 	 * @return the signed document in string format
 	 *
 	 * @throws NoSuchAlgorithmException
-	 * @throws NoSuchProviderException 
-	 * @throws InvalidKeyException 
-	 * @throws SignatureException 
+	 * @throws NoSuchProviderException
+	 * @throws InvalidKeyException
+	 * @throws SignatureException
 	 */
 	public static Boolean validateBinarySignature(String signedQuery, byte[] signature, X509Certificate cert, String signAlg) throws NoSuchAlgorithmException, NoSuchProviderException, InvalidKeyException, SignatureException {
 		Boolean valid = false;
 		try {
-			org.apache.xml.security.Init.init();
-
 			String convertedSigAlg = signatureAlgConversion(signAlg);
 
 			Signature sig = Signature.getInstance(convertedSigAlg); //, provider);
 			sig.initVerify(cert.getPublicKey());
 			sig.update(signedQuery.getBytes());
-			
+
 			valid = sig.verify(signature);
 		} catch (Exception e) {
 			LOGGER.warn("Error executing validateSign: " + e.getMessage(), e);
@@ -1232,23 +1357,22 @@ public final class Util {
 	 * 				 The List of certificates
 	 * @param signAlg
 	 * 				 Signature Algorithm
-	 * 
+	 *
 	 * @return the signed document in string format
 	 *
 	 * @throws NoSuchAlgorithmException
-	 * @throws NoSuchProviderException 
-	 * @throws InvalidKeyException 
-	 * @throws SignatureException 
+	 * @throws NoSuchProviderException
+	 * @throws InvalidKeyException
+	 * @throws SignatureException
 	 */
 	public static Boolean validateBinarySignature(String signedQuery, byte[] signature, List<X509Certificate> certList, String signAlg) throws NoSuchAlgorithmException, NoSuchProviderException, InvalidKeyException, SignatureException {
 		Boolean valid = false;
 
-		org.apache.xml.security.Init.init();
 		String convertedSigAlg = signatureAlgConversion(signAlg);
 		Signature sig = Signature.getInstance(convertedSigAlg); //, provider);
 
 		for (X509Certificate cert : certList) {
-			try {	
+			try {
 				sig.initVerify(cert.getPublicKey());
 				sig.update(signedQuery.getBytes());
 				valid = sig.verify(signature);
@@ -1263,6 +1387,50 @@ public final class Util {
 	}
 
 	/**
+	 * Get Status from a Response
+	 *
+	 * @param dom
+	 *            The Response as XML
+	 *
+	 * @return SamlResponseStatus
+	 *
+	 * @throws IllegalArgumentException
+	 * @throws ValidationError
+	 */
+	public static SamlResponseStatus getStatus(String statusXpath, Document dom) throws ValidationError {
+		try {
+			NodeList statusEntry = Util.query(dom, statusXpath, null);
+			if (statusEntry.getLength() != 1) {
+				throw new ValidationError("Missing Status on response", ValidationError.MISSING_STATUS);
+			}
+			NodeList codeEntry = Util.query(dom, statusXpath + "/samlp:StatusCode", (Element) statusEntry.item(0));
+
+			if (codeEntry.getLength() == 0) {
+				throw new ValidationError("Missing Status Code on response", ValidationError.MISSING_STATUS_CODE);
+			}
+			String stausCode = codeEntry.item(0).getAttributes().getNamedItem("Value").getNodeValue();
+			SamlResponseStatus status = new SamlResponseStatus(stausCode);
+
+			NodeList subStatusCodeEntry = Util.query(dom, statusXpath + "/samlp:StatusCode/samlp:StatusCode", (Element) statusEntry.item(0));
+			if (subStatusCodeEntry.getLength() > 0) {
+				String subStatusCode = subStatusCodeEntry.item(0).getAttributes().getNamedItem("Value").getNodeValue();
+				status.setSubStatusCode(subStatusCode);
+			}
+
+			NodeList messageEntry = Util.query(dom, statusXpath + "/samlp:StatusMessage", (Element) statusEntry.item(0));
+			if (messageEntry.getLength() == 1) {
+				status.setStatusMessage(messageEntry.item(0).getTextContent());
+			}
+
+			return status;
+		} catch (XPathExpressionException e) {
+			String error = "Unexpected error in getStatus." +  e.getMessage();
+			LOGGER.error(error);
+			throw new IllegalArgumentException(error);
+		}
+	}
+
+	/**
 	 * Generates a nameID.
 	 *
 	 * @param value
@@ -1271,24 +1439,32 @@ public final class Util {
 	 * 				 SP Name Qualifier
 	 * @param format
 	 * 				 SP Format
+	 * @param nq
+	 * 				 Name Qualifier
 	 * @param cert
 	 * 				 IdP Public certificate to encrypt the nameID
 	 *
 	 * @return Xml contained in the document.
 	 */
-	public static String generateNameId(String value, String spnq, String format, X509Certificate cert) {
+	public static String generateNameId(String value, String spnq, String format, String nq, X509Certificate cert) {
 		String res = null;
 		try {
 		  	DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 		  	dbf.setNamespaceAware(true);
 			Document doc = dbf.newDocumentBuilder().newDocument();
 			Element nameId = doc.createElement("saml:NameID");
+
 			if (spnq != null && !spnq.isEmpty()) {
 				nameId.setAttribute("SPNameQualifier", spnq);
 			}
 			if (format != null && !format.isEmpty()) {
 				nameId.setAttribute("Format", format);
 			}
+			if ((nq != null) && !nq.isEmpty())
+			{
+				nameId.setAttribute("NameQualifier", nq);
+			}
+
 			nameId.appendChild(doc.createTextNode(value));
 			doc.appendChild(nameId);
 
@@ -1305,7 +1481,7 @@ public final class Util {
 				keyCipher.init(XMLCipher.WRAP_MODE, cert.getPublicKey());
 
 				// encrypt the symmetric key
-				EncryptedKey encryptedKey = keyCipher.encryptKey(doc, symmetricKey);				
+				EncryptedKey encryptedKey = keyCipher.encryptKey(doc, symmetricKey);
 
 				// Add keyinfo inside the encrypted data
 				EncryptedData encryptedData = xmlCipher.getEncryptedData();
@@ -1336,6 +1512,24 @@ public final class Util {
 	 * 				 SP Name Qualifier
 	 * @param format
 	 * 				 SP Format
+	 * @param cert
+	 * 				 IdP Public certificate to encrypt the nameID
+	 *
+	 * @return Xml contained in the document.
+	 */
+	public static String generateNameId(String value, String spnq, String format, X509Certificate cert) {
+		return generateNameId(value, spnq, format, null, cert);
+	}
+
+	/**
+	 * Generates a nameID.
+	 *
+	 * @param value
+	 * 				 The value
+	 * @param spnq
+	 * 				 SP Name Qualifier
+	 * @param format
+	 * 				 SP Format
 	 *
 	 * @return Xml contained in the document.
 	 */
@@ -1354,10 +1548,10 @@ public final class Util {
 	public static String generateNameId(String value) {
 		return generateNameId(value, null, null, null);
 	}
-	
+
 	/**
 	 * Method to generate a symmetric key for encryption
-	 * 
+	 *
 	 * @return the symmetric key
 	 *
 	 * @throws Exception
@@ -1371,10 +1565,26 @@ public final class Util {
 	/**
 	 * Generates a unique string (used for example as ID of assertions)
 	 *
+	 * @param prefix
+	 *          Prefix for the Unique ID.
+	 *          Use property <code>onelogin.saml2.unique_id_prefix</code> to set this.
+	 *
+	 * @return A unique string
+	 */
+	public static String generateUniqueID(String prefix) {
+		if (prefix == null || StringUtils.isEmpty(prefix)) {
+			prefix = Util.UNIQUE_ID_PREFIX;
+		}
+		return prefix + UUID.randomUUID();
+	}
+
+	/**
+	 * Generates a unique string (used for example as ID of assertions)
+	 *
 	 * @return A unique string
 	 */
 	public static String generateUniqueID() {
-		return UNIQUE_ID_PREFIX + UUID.randomUUID();
+		return generateUniqueID(null);
 	}
 
 	/**
@@ -1397,7 +1607,7 @@ public final class Util {
 	 *
 	 * @param durationString
 	 * 				 The duration, as a string.
-	 * @param timestamp 
+	 * @param timestamp
 	 *               The unix timestamp we should apply the duration to.
 	 *
 	 * @return the new timestamp, after the duration is applied In Seconds.
@@ -1406,7 +1616,7 @@ public final class Util {
 	 */
 	public static long parseDuration(String durationString, long timestamp) throws IllegalArgumentException {
 		boolean haveMinus = false;
-	
+
 		if (durationString.startsWith("-")) {
 			durationString = durationString.substring(1);
 			haveMinus = true;
@@ -1425,7 +1635,7 @@ public final class Util {
 		}
 		return result.getMillis() / 1000;
 	}
-	  
+
 	/**
 	 * @return the unix timestamp that matches the current time.
 	 */
@@ -1450,7 +1660,7 @@ public final class Util {
 			if (cacheDuration != null && !StringUtils.isEmpty(cacheDuration)) {
 				expireTime = parseDuration(cacheDuration);
 			}
-	
+
 			if (validUntil != null && !StringUtils.isEmpty(validUntil)) {
 				DateTime dt = Util.parseDateTime(validUntil);
 				long validUntilTimeInt = dt.getMillis() / 1000;
@@ -1479,8 +1689,8 @@ public final class Util {
 		try {
 			if (cacheDuration != null && !StringUtils.isEmpty(cacheDuration)) {
 				expireTime = parseDuration(cacheDuration);
-			}	
-			
+			}
+
 			if (expireTime == 0 || expireTime > validUntil) {
 				expireTime = validUntil;
 			}
@@ -1489,7 +1699,7 @@ public final class Util {
 		}
 		return expireTime;
 	}
-	
+
 	/**
 	 * Create string form time In Millis with format yyyy-MM-ddTHH:mm:ssZ
 	 *
@@ -1529,7 +1739,7 @@ public final class Util {
 	 * @return datetime
 	 */
 	public static DateTime parseDateTime(String dateTime) {
-		
+
 		DateTime parsedData = null;
 		try {
 			parsedData = DATE_TIME_FORMAT.parseDateTime(dateTime);
@@ -1555,5 +1765,5 @@ public final class Util {
 		}
 	}
 
-	
+
 }

@@ -23,6 +23,7 @@ import com.onelogin.saml2.model.Contact;
 import com.onelogin.saml2.model.Organization;
 import com.onelogin.saml2.model.AttributeConsumingService;
 import com.onelogin.saml2.model.RequestedAttribute;
+import com.onelogin.saml2.util.Constants;
 import com.onelogin.saml2.util.Util;
 
 /**
@@ -138,7 +139,7 @@ public class Metadata {
 		Map<String, String> valueMap = new HashMap<String, String>();
 		Boolean wantsEncrypted = settings.getWantAssertionsEncrypted() || settings.getWantNameIdEncrypted(); 
 		
-		valueMap.put("id", Util.generateUniqueID());
+		valueMap.put("id", Util.generateUniqueID(settings.getUniqueIDPrefix()));
 		valueMap.put("validUntilTime", Util.formatDateTime(validUntilTime.getTimeInMillis()));
 		valueMap.put("cacheDuration", String.valueOf(cacheDuration));
 		valueMap.put("spEntityId", settings.getSpEntityId());
@@ -377,9 +378,32 @@ public class Metadata {
      */
     public static String signMetadata(String metadata, PrivateKey key, X509Certificate cert, String signAlgorithm) throws XPathExpressionException, XMLSecurityException
     {
-    	Document metadataDoc = Util.loadXML(metadata);
-    	String signedMetadata = Util.addSign(metadataDoc, key, cert, signAlgorithm);
-    	LOGGER.debug("Signed metadata --> " + signedMetadata);
+        return signMetadata(metadata, key, cert, signAlgorithm, Constants.SHA1);
+    }
+
+    /**
+     * Signs the metadata with the key/cert provided
+     *
+     * @param metadata
+     * 				SAML Metadata XML
+     * @param key
+     *       		Private Key
+     * @param cert
+     *      		x509 Public certificate
+     * @param signAlgorithm
+	 * 				Signature Algorithm
+     * @param digestAlgorithm
+	 * 				Digest Algorithm
+     *
+     * @return string Signed Metadata
+     * @throws XMLSecurityException
+     * @throws XPathExpressionException
+     */
+    public static String signMetadata(String metadata, PrivateKey key, X509Certificate cert, String signAlgorithm, String digestAlgorithm) throws XPathExpressionException, XMLSecurityException
+    {
+        Document metadataDoc = Util.loadXML(metadata);
+        String signedMetadata = Util.addSign(metadataDoc, key, cert, signAlgorithm, digestAlgorithm);
+        LOGGER.debug("Signed metadata --> " + signedMetadata);
         return signedMetadata;
     }
 }

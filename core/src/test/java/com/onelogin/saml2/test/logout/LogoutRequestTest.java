@@ -239,7 +239,7 @@ public class LogoutRequestTest {
 		nameIdDataStr = LogoutRequest.getNameIdData(logoutRequestStr, null).toString();
 		assertThat(nameIdDataStr, containsString("Format=urn:oasis:names:tc:SAML:2.0:nameid-format:entity"));
 		assertThat(nameIdDataStr, containsString("Value=http://idp.example.com/"));
-		assertThat(nameIdDataStr, containsString("SPNameQualifier=http://localhost:8080/java-saml-jspsample/metadata.jsp"));
+		assertThat(nameIdDataStr, not(containsString("SPNameQualifier=http://localhost:8080/java-saml-jspsample/metadata.jsp")));
 
 		// This settings file contains as IdP cert the SP cert, so I can use the getSPkey to decrypt.
 		settings = new SettingsBuilder().fromFile("config/config.samecerts.properties").build();
@@ -268,14 +268,24 @@ public class LogoutRequestTest {
 		assertThat(nameIdDataStr, containsString("SPNameQualifier=https://pitbulk.no-ip.org/newonelogin/demo1/metadata.php"));
 	
 		settings = new SettingsBuilder().fromFile("config/config.emailaddressformat.properties").build();
-		logoutRequest = new LogoutRequest(settings, null, "ONELOGIN_1e442c129e1f822c8096086a1103c5ee2c7cae1c", null); 
+		logoutRequest = new LogoutRequest(settings, null, "ONELOGIN_1e442c129e1f822c8096086a1103c5ee2c7cae1c", null);
 		logoutRequestStringBase64 = logoutRequest.getEncodedLogoutRequest();
 		logoutRequestStr = Util.base64decodedInflated(logoutRequestStringBase64);
 		assertThat(logoutRequestStr, containsString("<samlp:LogoutRequest"));
 		nameIdDataStr = LogoutRequest.getNameIdData(logoutRequestStr, null).toString();
 		assertThat(nameIdDataStr, containsString("Value=ONELOGIN_1e442c129e1f822c8096086a1103c5ee2c7cae1c"));
 		assertThat(nameIdDataStr, containsString("Format=urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"));
-		assertThat(nameIdDataStr, not(containsString("SPNameQualifier")));		
+		assertThat(nameIdDataStr, not(containsString("SPNameQualifier")));
+
+		logoutRequest = new LogoutRequest(settings, null, "ONELOGIN_1e442c129e1f822c8096086a1103c5ee2c7cae1c", null, Constants.NAMEID_PERSISTENT, settings.getIdpEntityId(), settings.getSpEntityId());
+		logoutRequestStringBase64 = logoutRequest.getEncodedLogoutRequest();
+		logoutRequestStr = Util.base64decodedInflated(logoutRequestStringBase64);
+		assertThat(logoutRequestStr, containsString("<samlp:LogoutRequest"));
+		nameIdDataStr = LogoutRequest.getNameIdData(logoutRequestStr, null).toString();
+		assertThat(nameIdDataStr, containsString("Value=ONELOGIN_1e442c129e1f822c8096086a1103c5ee2c7cae1c"));
+		assertThat(nameIdDataStr, containsString("Format=" + Constants.NAMEID_PERSISTENT));
+		assertThat(nameIdDataStr, containsString("NameQualifier=" + settings.getIdpEntityId()));
+		assertThat(nameIdDataStr, containsString("SPNameQualifier=" + settings.getSpEntityId()));
 	}
 
 	/**
@@ -711,7 +721,7 @@ public class LogoutRequestTest {
 		String sigAlg = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
 		String signature = "XCwCyI5cs7WhiJlB5ktSlWxSBxv+6q2xT3c8L7dLV6NQG9LHWhN7gf8qNsahSXfCzA0Ey9dp5BQ0EdRvAk2DIzKmJY6e3hvAIEp1zglHNjzkgcQmZCcrkK9Czi2Y1WkjOwR/WgUTUWsGJAVqVvlRZuS3zk3nxMrLH6f7toyvuJc=";
 
-		HttpRequest httpRequest = new HttpRequest(requestURL)
+		HttpRequest httpRequest = new HttpRequest(requestURL, (String)null)
 						.addParameter("SAMLRequest", samlRequestEncoded)
 						.addParameter("RelayState", relayState)
 						.addParameter("SigAlg", sigAlg)
@@ -829,6 +839,6 @@ public class LogoutRequestTest {
 	}
 
 	private static HttpRequest newHttpRequest(String requestURL, String samlRequestEncoded) {
-		return new HttpRequest(requestURL).addParameter("SAMLRequest", samlRequestEncoded);
+		return new HttpRequest(requestURL, (String)null).addParameter("SAMLRequest", samlRequestEncoded);
 	}
 }
